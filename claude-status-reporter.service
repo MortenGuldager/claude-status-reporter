@@ -1,0 +1,16 @@
+[Unit]
+Description=Claude Code session status reporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Environment=HOME=/home/ubuntu
+EnvironmentFile=/etc/claude-status-reporter.env
+ExecStart=/usr/local/bin/claude-status-reporter.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
