@@ -12,19 +12,26 @@ doing right now.
 
 ```json
 {
-  "sessions": {
-    "c632fc39-11d4-4d63-9dda-74d14706f07b": "busy",
-    "9c0dd5a5-1e3d-4af8-b4e5-d43975c9b38e": "idle"
+  "slots": {
+    "c632fc39-11d4-4d63-9dda-74d14706f07b": "#ff0000",
+    "9c0dd5a5-1e3d-4af8-b4e5-d43975c9b38e": "#00dc00"
   }
 }
 ```
 
-`sessions` is a map from Claude Code's `sessionId` to its status, built
-from `~/.claude/sessions/*.json` (empty object when no sessions exist).
+`slots` is a map from Claude Code's `sessionId` to the RGB color (hex
+`#rrggbb`) that the subscriber should render for that slot, built from
+`~/.claude/sessions/*.json` (empty object when no sessions exist).
 Keys are sorted so a consumer can dedup by comparing payloads
 byte-for-byte.
 
-Consumers should key off `sessionId`, not position — two hosts publishing
+The status → color mapping lives in this reporter, configurable via
+`REPORTER_COLOR_*` env vars (see [`config.env.example`](config.env.example)).
+This keeps the display hardware status-agnostic — the same indicator can
+be driven by any other publisher emitting the same payload shape with
+whatever colors that publisher likes.
+
+Consumers should key off the slot id, not position — two hosts publishing
 to the same subscriber will not collide on slot 0. Identifying info
 (developer, hostname) is intentionally omitted; encode it in the MQTT
 topic or HTTP URL instead.
