@@ -37,7 +37,7 @@ the current state.
 
 - **`none`** — disable publishing entirely.
 - **`stdout`** *(default)* — writes to the systemd journal.
-  Tail: `journalctl -u claude-status-reporter -f`
+  Tail: `journalctl --user -u claude-status-reporter -f`
 - **`file`** — appends one JSON line per report to `REPORTER_FILE_PATH`.
 - **`mqtt`** — publishes via `mosquitto_pub` with `-r` (retained), so
   late subscribers immediately receive the last status. Requires
@@ -53,10 +53,16 @@ For anything you would rather not broadcast, run your own broker.
 
 ## Installation
 
-The installer targets any systemd-on-Linux environment. Three common
-ways to use it:
+The reporter runs as a **systemd user service**, one instance per user,
+with config in each user's `~/.config/`. Installation is a two-stage
+process: root stages the files once; each user then enables the service
+for themselves without further sudo.
 
-### Standalone (any Linux host with systemd)
+Targets any systemd-on-Linux environment. Self-linger requires
+systemd ≥ 249 (Ubuntu 22.04 and newer); for older systems see
+[Older systems](#older-systems) below.
+
+### Stage 1 — root installs once
 
 ```sh
 git clone https://github.com/MortenGuldager/claude-status-reporter.git
@@ -64,18 +70,34 @@ cd claude-status-reporter
 sudo ./install.sh
 ```
 
-Edit `/etc/claude-status-reporter.env` to pick a backend (default is
-`stdout`), then:
+This drops the script and example config under
+`/opt/claude-status-reporter/` and registers the systemd user unit at
+`/etc/systemd/user/claude-status-reporter.service`. Nothing is started.
+
+### Stage 2 — each user enables for themselves
 
 ```sh
-sudo systemctl restart claude-status-reporter
-journalctl -u claude-status-reporter -f
+/opt/claude-status-reporter/bin/user-setup.sh
 ```
+
+That script (run as the user, no sudo) enables linger so the service
+survives logout, copies the example config to
+`~/.config/claude-status-reporter/config.env`, and starts the service.
+
+Then edit the config to pick a backend (default is `stdout`):
+
+```sh
+$EDITOR ~/.config/claude-status-reporter/config.env
+systemctl --user restart claude-status-reporter
+journalctl --user -u claude-status-reporter -f
+```
+
+New users added to the system later run the same one-liner — no
+sysadmin involvement.
 
 ### Inside a WSL2 distro
 
-Same two commands as above, run from inside the distro. Make sure
-`/etc/wsl.conf` has systemd enabled:
+Make sure `/etc/wsl.conf` has systemd enabled:
 
 ```ini
 [boot]
@@ -84,11 +106,9 @@ systemd=true
 
 (Restart the distro with `wsl --shutdown` from PowerShell after editing.)
 
-The default user in a standard Ubuntu WSL2 distro is `ubuntu`, which
-matches the `User=` in the unit file. If your distro uses a different
-default user, either edit
-`/etc/systemd/system/claude-status-reporter.service` or override the
-user via a systemd drop-in.
+Then follow the two stages above as the relevant user. Unlike the old
+system-unit setup, no `User=` is hard-coded — whoever runs
+`user-setup.sh` gets their own instance.
 
 ### From within claude-sandbox
 
@@ -99,16 +119,25 @@ using claude-sandbox.
 
 [cs]: https://github.com/MortenGuldager/claude-sandbox
 
+### Older systems
+
+On systemd < 249, `loginctl enable-linger` requires root because the
+`set-self-linger` polkit action does not exist yet. Either have the
+admin run `sudo loginctl enable-linger <user>` once per user, or drop
+in a polkit rule that grants self-linger; the rest of the user flow
+works unchanged.
+
 ## Configuration
 
-All settings live in `/etc/claude-status-reporter.env`. See
-[`claude-status-reporter.env.example`](claude-status-reporter.env.example)
-for the full set with comments.
+Each user has their own config at
+`~/.config/claude-status-reporter/config.env`. See
+[`config.env.example`](config.env.example) for the full set with
+comments.
 
 After changing config:
 
 ```sh
-sudo systemctl restart claude-status-reporter
+systemctl --user restart claude-status-reporter
 ```
 
 ## Dependencies
@@ -129,7 +158,15 @@ Ubuntu).
 sudo ./uninstall.sh
 ```
 
-Leaves `/etc/claude-status-reporter.env` in place.
+Removes `/opt/claude-status-reporter/` and the system-wide user unit.
+Per-user state (`~/.config/claude-status-reporter/` and each user's
+`systemctl --user` enable-state) is left in place. Users who want a
+clean removal should run, as themselves:
+
+```sh
+systemctl --user disable --now claude-status-reporter
+rm -rf ~/.config/claude-status-reporter
+```
 
 ## License
 

@@ -1,16 +1,13 @@
 [Unit]
 Description=Claude Code session status reporter
-After=network-online.target
-Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
-Environment=HOME=/home/ubuntu
-EnvironmentFile=/etc/claude-status-reporter.env
-ExecStart=/usr/local/bin/claude-status-reporter.sh
+# Optional: missing file is fine — service starts with default backend (stdout).
+EnvironmentFile=-%h/.config/claude-status-reporter/config.env
+ExecStart=/opt/claude-status-reporter/bin/claude-status-reporter.sh
 Restart=always
 RestartSec=5
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

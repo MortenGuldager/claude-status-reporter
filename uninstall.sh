@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
-# uninstall.sh — remove claude-status-reporter from the current system.
-# Leaves /etc/claude-status-reporter.env in place.
+# uninstall.sh — remove claude-status-reporter system files.
+# Run as root.
+#
+# Does NOT touch per-user state: ~/.config/claude-status-reporter/ and
+# each user's `systemctl --user` enable-state are left alone. Users who
+# want a clean removal should run, as themselves:
+#
+#   systemctl --user disable --now claude-status-reporter
+#   rm -rf ~/.config/claude-status-reporter
 
 set -euo pipefail
 
@@ -9,16 +16,12 @@ if [ "${EUID:-$(id -u)}" -ne 0 ]; then
     exit 1
 fi
 
-if command -v systemctl >/dev/null 2>&1; then
-    if [ -d /run/systemd/system ]; then
-        systemctl disable --now claude-status-reporter.service 2>/dev/null || true
-    else
-        systemctl disable claude-status-reporter.service 2>/dev/null || true
-    fi
-    systemctl daemon-reload 2>/dev/null || true
+rm -f /etc/systemd/user/claude-status-reporter.service
+rm -rf /opt/claude-status-reporter
+
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    systemctl --global daemon-reload 2>/dev/null || true
 fi
 
-rm -f /usr/local/bin/claude-status-reporter.sh
-rm -f /etc/systemd/system/claude-status-reporter.service
-
-echo "Removed. /etc/claude-status-reporter.env was left in place."
+echo "Removed /opt/claude-status-reporter and the systemd user unit."
+echo "Per-user config under ~/.config/claude-status-reporter/ was left in place."

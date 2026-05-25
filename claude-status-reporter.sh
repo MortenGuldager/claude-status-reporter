@@ -11,11 +11,12 @@
 # off sessionId, not position — multiple sandboxes can publish to the same
 # subscriber without colliding.
 #
-# Settings come from /etc/claude-status-reporter.env (or $REPORTER_CONFIG_FILE).
+# Settings come from ~/.config/claude-status-reporter/config.env
+# (or $REPORTER_CONFIG_FILE).
 
 set -u
 
-CONFIG_FILE="${REPORTER_CONFIG_FILE:-/etc/claude-status-reporter.env}"
+CONFIG_FILE="${REPORTER_CONFIG_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/claude-status-reporter/config.env}"
 if [ -f "$CONFIG_FILE" ]; then
     # shellcheck source=/dev/null
     . "$CONFIG_FILE"

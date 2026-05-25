@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# install.sh — install claude-status-reporter into the current
-# systemd-on-Linux environment. Run as root.
+# install.sh — install claude-status-reporter under /opt and drop the
+# systemd user unit into /etc/systemd/user/. Run as root.
 #
-# Idempotent: re-running overwrites the script and unit file but leaves
-# /etc/claude-status-reporter.env in place if you have already customised it.
+# This only stages the files. Each user enables the service for themselves
+# with /opt/claude-status-reporter/bin/user-setup.sh — no further root
+# involvement required.
+#
+# Idempotent: re-running overwrites the installed files. Per-user config
+# under ~/.config/claude-status-reporter/ is never touched.
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+PREFIX=/opt/claude-status-reporter
 
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
     echo "install.sh must be run as root (try: sudo $0)" >&2
@@ -19,28 +24,31 @@ if ! command -v systemctl >/dev/null 2>&1; then
     exit 1
 fi
 
-install -m 0755 "$HERE/claude-status-reporter.sh" \
-    /usr/local/bin/claude-status-reporter.sh
+install -d -m 0755 "$PREFIX/bin"
+install -m 0755 "$HERE/claude-status-reporter.sh" "$PREFIX/bin/claude-status-reporter.sh"
+install -m 0755 "$HERE/user-setup.sh"             "$PREFIX/bin/user-setup.sh"
+install -m 0644 "$HERE/config.env.example"        "$PREFIX/config.env.example"
+install -m 0644 "$HERE/README.md"                 "$PREFIX/README.md"
+
+install -d -m 0755 /etc/systemd/user
 install -m 0644 "$HERE/claude-status-reporter.service" \
-    /etc/systemd/system/claude-status-reporter.service
+    /etc/systemd/user/claude-status-reporter.service
 
-if [ ! -f /etc/claude-status-reporter.env ]; then
-    install -m 0644 "$HERE/claude-status-reporter.env.example" \
-        /etc/claude-status-reporter.env
-    echo "Wrote default config to /etc/claude-status-reporter.env (backend=stdout)."
-fi
-
-systemctl daemon-reload
-
-# systemd isn't always running when the installer is invoked — e.g. during
-# an offline image build. Enable unconditionally; only start when systemd
-# is actually live.
+# Tell already-running user managers about the new unit. Safe no-op when
+# systemd isn't live (e.g. during an offline image build).
 if [ -d /run/systemd/system ]; then
-    systemctl enable --now claude-status-reporter.service
-    echo "Service enabled and started."
-    echo "Tail logs: journalctl -u claude-status-reporter -f"
-else
-    systemctl enable claude-status-reporter.service
-    echo "Service enabled. systemd is not running here, so it was not started."
-    echo "It will start on next boot."
+    systemctl --global daemon-reload 2>/dev/null || true
 fi
+
+cat <<EOF
+Installed:
+  $PREFIX/
+  /etc/systemd/user/claude-status-reporter.service
+
+Each user can now enable the reporter for themselves, without sudo:
+
+    $PREFIX/bin/user-setup.sh
+
+That script enables linger, drops a default config into
+~/.config/claude-status-reporter/config.env, and starts the service.
+EOF
