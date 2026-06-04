@@ -1,8 +1,13 @@
 # claude-status-reporter
 
-A small systemd service that watches Claude Code's
-`~/.claude/sessions/*.json` and publishes the aggregated session status
-to a configurable backend whenever it changes.
+A small systemd service that watches every Claude account's
+`~/.claudes/<account>/sessions/*.json` and publishes the aggregated
+session status to a configurable backend whenever it changes.
+
+Multiple Claude credentials are kept side by side under `~/.claudes/`,
+one directory per account (each a `CLAUDE_CONFIG_DIR`); the reporter
+aggregates sessions across all of them and picks up new accounts
+automatically. Override the parent with `CLAUDE_HOMES_DIR`.
 
 Designed to drive a desk indicator, a dashboard, or any other
 out-of-process visibility into what your Claude Code instances are
@@ -21,7 +26,8 @@ doing right now.
 
 `slots` is a map from Claude Code's `sessionId` to the RGB color (hex
 `#rrggbb`) that the subscriber should render for that slot, built from
-`~/.claude/sessions/*.json` (empty object when no sessions exist).
+`~/.claudes/*/sessions/*.json` across all accounts (empty object when no
+sessions exist).
 Keys are sorted so a consumer can dedup by comparing payloads
 byte-for-byte.
 

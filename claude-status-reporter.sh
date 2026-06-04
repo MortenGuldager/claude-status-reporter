@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# claude-status-reporter — publishes the status of ~/.claude/sessions/*.json
-# via a configurable backend.
+# claude-status-reporter — publishes the status of every account's
+# ~/.claudes/<account>/sessions/*.json via a configurable backend.
 #
-# Driven by inotify on the sessions directory: a payload is sent on every
+# Multiple Claude credentials are kept side by side under ~/.claudes/, one
+# directory per account (each is a CLAUDE_CONFIG_DIR), so sessions are
+# aggregated across all of them: ~/.claudes/*/sessions/*.json.
+#
+# Driven by inotify on those directories: a payload is sent on every
 # change, plus a keep-alive every REPORTER_KEEPALIVE seconds (default 60)
 # so a subscriber that comes online late still learns the current state.
+# New accounts appearing under ~/.claudes/ are picked up automatically.
 #
 # Payload: {"slots":{"<sessionId>":"#rrggbb", ...}}.
 # Keys are sorted for deterministic change detection. The value is the
@@ -25,7 +30,9 @@ fi
 
 REPORTER_BACKEND="${REPORTER_BACKEND:-stdout}"
 REPORTER_KEEPALIVE="${REPORTER_KEEPALIVE:-60}"
-SESSIONS_DIR="${CLAUDE_SESSIONS_DIR:-$HOME/.claude/sessions}"
+# Parent directory holding one subdirectory per Claude account, each a
+# CLAUDE_CONFIG_DIR with its own sessions/ dir.
+CLAUDE_HOMES_DIR="${CLAUDE_HOMES_DIR:-$HOME/.claudes}"
 
 # Status → color mapping. Defaults match the previous indicator firmware
 # palette so an existing deployment looks identical without any config change.
@@ -35,7 +42,9 @@ REPORTER_COLOR_IDLE="${REPORTER_COLOR_IDLE:-#00dc00}"
 REPORTER_COLOR_INFO="${REPORTER_COLOR_INFO:-#00dc00}"
 REPORTER_COLOR_UNKNOWN="${REPORTER_COLOR_UNKNOWN:-#3c3c3c}"
 
-mkdir -p "$SESSIONS_DIR"
+# Ensure the parent exists so inotifywait can watch it for the first
+# account directory to appear, even before any account is set up.
+mkdir -p "$CLAUDE_HOMES_DIR"
 
 # --- Backends ---------------------------------------------------------------
 
@@ -94,7 +103,8 @@ publish() {
 compute_status() {
     local slots='{}'
     shopt -s nullglob
-    local files=("$SESSIONS_DIR"/*.json)
+    # One sessions dir per account: ~/.claudes/<account>/sessions/.
+    local files=("$CLAUDE_HOMES_DIR"/*/sessions/*.json)
     shopt -u nullglob
     if [ "${#files[@]}" -gt 0 ]; then
         # -S sorts object keys so dedup compares are stable.
@@ -117,6 +127,25 @@ emit() {
     publish "$payload"
 }
 
+# Directories inotifywait should watch, printed one per line:
+#   - the parent itself, to notice a brand-new account dir being created;
+#   - each existing account dir, to notice its sessions/ subdir appearing;
+#   - each existing sessions dir, where the actual *.json files change.
+# The list is recomputed each loop iteration, so accounts (and their
+# sessions dirs) that appear at runtime are picked up on the next wake.
+watch_dirs() {
+    printf '%s\n' "$CLAUDE_HOMES_DIR"
+    shopt -s nullglob
+    local d
+    for d in "$CLAUDE_HOMES_DIR"/*/; do
+        printf '%s\n' "$d"
+    done
+    for d in "$CLAUDE_HOMES_DIR"/*/sessions/; do
+        printf '%s\n' "$d"
+    done
+    shopt -u nullglob
+}
+
 # --- Main loop --------------------------------------------------------------
 
 last=""
@@ -125,11 +154,14 @@ emit "$current"
 last="$current"
 
 while true; do
-    # inotifywait exits 0 on event, 2 on timeout. Watch the directory so we
+    # Recompute the watch set each iteration so new accounts and their
+    # sessions/ dirs are picked up without a restart.
+    mapfile -t dirs < <(watch_dirs)
+    # inotifywait exits 0 on event, 2 on timeout. Watch the directories so we
     # also catch creates/deletes of session files, not just modifications.
     if inotifywait -qq -t "$REPORTER_KEEPALIVE" \
             -e close_write,create,delete,move \
-            "$SESSIONS_DIR" 2>/dev/null; then
+            "${dirs[@]}" 2>/dev/null; then
         current="$(compute_status)"
         if [ "$current" != "$last" ]; then
             emit "$current"
