@@ -11,6 +11,12 @@
 # so a subscriber that comes online late still learns the current state.
 # New accounts appearing under ~/.claudes/ are picked up automatically.
 #
+# After an event the script waits REPORTER_SETTLE seconds (default 1) and
+# only then reads state, so a burst of changes collapses into a single
+# read. Very short-lived sessions that appear and vanish within the settle
+# window never get reported, because the post-settle read sees the final
+# (unchanged) state and the existing dedup suppresses the emit.
+#
 # Payload: {"slots":{"<sessionId>":"#rrggbb", ...}}.
 # Keys are sorted for deterministic change detection. The value is the
 # RGB color that subscribers should render for that slot — the status →
@@ -30,6 +36,10 @@ fi
 
 REPORTER_BACKEND="${REPORTER_BACKEND:-stdout}"
 REPORTER_KEEPALIVE="${REPORTER_KEEPALIVE:-60}"
+# Seconds to wait after an inotify event before reading state, to debounce
+# bursts and let very short-lived sessions disappear before they are read.
+# Set to 0 to read immediately (the pre-debounce behavior).
+REPORTER_SETTLE="${REPORTER_SETTLE:-1}"
 # Parent directory holding one subdirectory per Claude account, each a
 # CLAUDE_CONFIG_DIR with its own sessions/ dir.
 CLAUDE_HOMES_DIR="${CLAUDE_HOMES_DIR:-$HOME/.claudes}"
@@ -162,6 +172,9 @@ while true; do
     if inotifywait -qq -t "$REPORTER_KEEPALIVE" \
             -e close_write,create,delete,move \
             "${dirs[@]}" 2>/dev/null; then
+        # Settle: absorb a burst of changes (and let a flash-in-the-pan
+        # session vanish) before taking a single reading.
+        [ "$REPORTER_SETTLE" != 0 ] && sleep "$REPORTER_SETTLE"
         current="$(compute_status)"
         if [ "$current" != "$last" ]; then
             emit "$current"
