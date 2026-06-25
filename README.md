@@ -46,8 +46,16 @@ session's state for a late subscriber. Instead the reporter explodes the map
 into one retained message per session:
 
 ```
-claude_info/status/<reporter>/<sessionId>   payload: "#rrggbb"   (retained)
+<root>/<node>/<sessionId>   payload: "#rrggbb"   (retained)
 ```
+
+`<root>` is `REPORTER_MQTT_TOPIC` (default `claude_info/status`). `<node>`
+identifies this reporter and defaults to a **non-reversible hash of the
+hostname**, so a `claude-sandbox` container — named `csb-<project>-<id>` after
+the project it was launched from — does not leak that project name to anyone
+reading `claude_info/#`. Override `REPORTER_NODE` with a friendly name only
+where the identity is not sensitive. So with the defaults a session lands at
+`claude_info/status/<hash>/<sessionId>`.
 
 A late subscriber to `claude_info/status/#` therefore receives the exact set
 of live sessions, one retained message each. When a session ends the reporter
@@ -66,8 +74,9 @@ whatever colors that publisher likes.
 
 Consumers should key off the slot id, not position — two hosts publishing
 to the same subscriber will not collide on slot 0. Identifying info
-(developer, hostname) is intentionally omitted; encode it in the MQTT
-topic or HTTP URL instead.
+(developer, hostname) is intentionally kept out of the payload; the only
+identity on the wire is the `<node>` topic segment, which defaults to a
+hostname hash precisely so it carries no readable name (see above).
 
 A keep-alive is also emitted every `REPORTER_KEEPALIVE` seconds
 (default 60) so a subscriber that comes online late immediately learns
