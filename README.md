@@ -15,6 +15,9 @@ doing right now.
 
 ## Payload
 
+The `stdout`, `file`, and `http` backends emit one aggregate object per
+report:
+
 ```json
 {
   "slots": {
@@ -30,6 +33,24 @@ doing right now.
 sessions exist).
 Keys are sorted so a consumer can dedup by comparing payloads
 byte-for-byte.
+
+The **mqtt** backend does not send this blob. Retained messages are stored
+one-per-topic, so a single shared topic could never hold more than one
+session's state for a late subscriber. Instead the reporter explodes the map
+into one retained message per session:
+
+```
+claude_info/status/<reporter>/<sessionId>   payload: "#rrggbb"   (retained)
+```
+
+A late subscriber to `claude_info/status/#` therefore receives the exact set
+of live sessions, one retained message each. When a session ends the reporter
+publishes an **empty retained message** to that topic, which deletes the
+broker's retained entry — so subscribers should treat an empty payload on a
+status topic as "this session is gone" and clear the slot immediately. As a
+safety net for a reporter that dies without sending tombstones, every live
+publish carries an MQTT-5 `message-expiry-interval` (`REPORTER_STATUS_EXPIRY`,
+refreshed on each keep-alive) so the broker sweeps stale sessions on its own.
 
 The status → color mapping lives in this reporter, configurable via
 `REPORTER_COLOR_*` env vars (see [`config.env.example`](config.env.example)).
@@ -52,9 +73,11 @@ the current state.
 - **`stdout`** *(default)* — writes to the systemd journal.
   Tail: `journalctl --user -u claude-status-reporter -f`
 - **`file`** — appends one JSON line per report to `REPORTER_FILE_PATH`.
-- **`mqtt`** — publishes via `mosquitto_pub` with `-r` (retained), so
-  late subscribers immediately receive the last status. Requires
-  `mosquitto-clients`.
+- **`mqtt`** — publishes one retained message per session (see
+  [Payload](#payload)), so late subscribers immediately receive the live
+  set and ended sessions clear themselves. Connects with MQTT 5 (`-V 5`)
+  for the expiry safety net; subscribers may stay on 3.1.1. Requires
+  `mosquitto-clients` and an MQTT-5-capable broker.
 - **`http`** — POSTs `application/json` to `REPORTER_HTTP_URL`.
 
 ### Public MQTT brokers
