@@ -89,33 +89,21 @@ REPORTER_COLOR_UNKNOWN="${REPORTER_COLOR_UNKNOWN:-#3c3c3c}"
 
 # --- MQTT identity ----------------------------------------------------------
 # The mqtt backend publishes under a shared root plus a per-reporter identity
-# segment, as <root>/<node>/<sessionId>. REPORTER_MQTT_TOPIC is that ROOT
-# (default claude_info/status, matching the claude-top viewer's ACL).
+# segment, as <root>/<node>/<sessionId>. REPORTER_MQTT_TOPIC is the ROOT
+# (default claude_info/status, matching the claude-top viewer's ACL) and is
+# always treated as a root: the reporter appends <node> itself, so never bake
+# a machine/identity name into REPORTER_MQTT_TOPIC.
 #
-# <node> defaults to a NON-REVERSIBLE hash of the hostname. This is the privacy
-# boundary: a claude-sandbox container is named after the project it was
-# launched from (csb-<project>-<id>), so publishing the raw hostname would leak
-# what you are working on to anyone with read access to claude_info/#. Hashing
-# keeps the identity stable (so a subscriber can be pinned to it) without
-# revealing the name. Override REPORTER_NODE with a friendly, non-sensitive
-# name on machines where the identity is not secret (e.g. a deliberate display
-# name for a desk indicator).
-REPORTER_TOPIC_ROOT="${REPORTER_MQTT_TOPIC:-claude_info/status}"
-if [ -n "${REPORTER_NODE:-}" ]; then
-    # Explicit identity always wins.
-    REPORTER_MQTT_BASE="${REPORTER_TOPIC_ROOT%/}/${REPORTER_NODE}"
-elif [ "$REPORTER_TOPIC_ROOT" = "claude_info/status" ]; then
-    # Shared root with no explicit node → derive a safe, stable, non-leaking
-    # identity from the hostname so the container/project name never escapes.
-    REPORTER_NODE="$(hostname | sha256sum | head -c 12)"
-    REPORTER_MQTT_BASE="${REPORTER_TOPIC_ROOT%/}/${REPORTER_NODE}"
-else
-    # Backward compatibility: an older config that baked the identity straight
-    # into REPORTER_MQTT_TOPIC (e.g. claude_info/status/my-machine) and set no
-    # REPORTER_NODE is honoured verbatim, so existing deployments keep working.
-    REPORTER_MQTT_BASE="$REPORTER_TOPIC_ROOT"
-    REPORTER_NODE="${REPORTER_TOPIC_ROOT##*/}"
-fi
+# <node> is REPORTER_NODE; left unset it defaults to a NON-REVERSIBLE hash of
+# the hostname. This is the privacy boundary: a claude-sandbox container is
+# named after the project it was launched from (csb-<project>-<id>), so a raw
+# hostname on the broker would leak what you are working on to anyone with read
+# access to claude_info/#. The hash still gives each reporter a stable, distinct
+# subtree without revealing the name. Override REPORTER_NODE with a friendly,
+# non-sensitive name where the identity is not secret (e.g. a desk indicator).
+REPORTER_MQTT_TOPIC="${REPORTER_MQTT_TOPIC:-claude_info/status}"
+REPORTER_NODE="${REPORTER_NODE:-$(hostname | sha256sum | head -c 12)}"
+REPORTER_MQTT_BASE="${REPORTER_MQTT_TOPIC%/}/${REPORTER_NODE}"
 # A stable client id keeps the broker's connection log free of the default
 # mosquitto_pub id, which embeds the hostname. Derived from <node>, so it
 # carries no more information than the topic already does.
