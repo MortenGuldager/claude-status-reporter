@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
-# claude-status-reporter — publishes the status of every account's
-# ~/.claudes/<account>/sessions/*.json via a configurable backend.
+# claude-status-reporter — publishes the status of every Claude Code
+# session's *.json via a configurable backend.
 #
-# Multiple Claude credentials are kept side by side under ~/.claudes/, one
-# directory per account (each is a CLAUDE_CONFIG_DIR), so sessions are
-# aggregated across all of them: ~/.claudes/*/sessions/*.json.
+# Two session layouts are scanned and unioned, so this works whether you run
+# one Claude login or several:
+#   - the single default config dir, CLAUDE_DEFAULT_DIR/sessions/*.json
+#     (CLAUDE_CONFIG_DIR if set, else ~/.claude — the common case);
+#   - a multi-account tree, ~/.claudes/<account>/sessions/*.json, where each
+#     account dir is its own CLAUDE_CONFIG_DIR kept side by side.
+# Sessions are de-duplicated by sessionId across both.
 #
 # Driven by inotify on those directories: a payload is sent on every
 # change, plus a keep-alive every REPORTER_KEEPALIVE seconds (default 60)
 # so a subscriber that comes online late still learns the current state.
-# New accounts appearing under ~/.claudes/ are picked up automatically.
+# New accounts (and the default sessions/ dir) appearing at runtime are
+# picked up automatically.
 #
 # After an event the script waits REPORTER_SETTLE seconds (default 1) and
 # only then reads state, so a burst of changes collapses into a single
@@ -60,8 +65,16 @@ REPORTER_SETTLE="${REPORTER_SETTLE:-1}"
 # Must exceed REPORTER_KEEPALIVE; default 3× gives a comfortable margin.
 REPORTER_STATUS_EXPIRY="${REPORTER_STATUS_EXPIRY:-$(( REPORTER_KEEPALIVE * 3 ))}"
 # Parent directory holding one subdirectory per Claude account, each a
-# CLAUDE_CONFIG_DIR with its own sessions/ dir.
+# CLAUDE_CONFIG_DIR with its own sessions/ dir. This is the multi-account
+# layout used on a host that keeps several logins side by side.
 CLAUDE_HOMES_DIR="${CLAUDE_HOMES_DIR:-$HOME/.claudes}"
+# The single config dir Claude Code uses when run normally: $CLAUDE_CONFIG_DIR
+# if set, else ~/.claude. Its sessions/ are scanned IN ADDITION to the
+# multi-account layout, so the reporter works out of the box whether you keep
+# one login at ~/.claude (the common case — e.g. inside a sandbox) or several
+# under ~/.claudes/<account>. Sessions are de-duplicated by sessionId, so a dir
+# that appears in both layouts is counted once.
+CLAUDE_DEFAULT_DIR="${CLAUDE_DEFAULT_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
 
 # Status → color mapping. Defaults match the previous indicator firmware
 # palette so an existing deployment looks identical without any config change.
@@ -170,8 +183,11 @@ publish() {
 compute_status() {
     local slots='{}'
     shopt -s nullglob
-    # One sessions dir per account: ~/.claudes/<account>/sessions/.
-    local files=("$CLAUDE_HOMES_DIR"/*/sessions/*.json)
+    # Two layouts, unioned: one sessions dir per account under CLAUDE_HOMES_DIR
+    # (~/.claudes/<account>/sessions/), plus the single default config dir
+    # (CLAUDE_DEFAULT_DIR/sessions/, normally ~/.claude/sessions/). jq's `add`
+    # below de-dups by sessionId, so a session seen in both layouts counts once.
+    local files=("$CLAUDE_HOMES_DIR"/*/sessions/*.json "$CLAUDE_DEFAULT_DIR"/sessions/*.json)
     shopt -u nullglob
     if [ "${#files[@]}" -gt 0 ]; then
         # -S sorts object keys so dedup compares are stable.
@@ -203,9 +219,11 @@ emit() {
 # Directories inotifywait should watch, printed one per line:
 #   - the parent itself, to notice a brand-new account dir being created;
 #   - each existing account dir, to notice its sessions/ subdir appearing;
-#   - each existing sessions dir, where the actual *.json files change.
+#   - each existing sessions dir, where the actual *.json files change;
+#   - the default config dir + its sessions/ (the single-account layout).
 # The list is recomputed each loop iteration, so accounts (and their
 # sessions dirs) that appear at runtime are picked up on the next wake.
+# Only existing dirs are emitted — inotifywait errors on a missing path.
 watch_dirs() {
     printf '%s\n' "$CLAUDE_HOMES_DIR"
     shopt -s nullglob
@@ -217,6 +235,10 @@ watch_dirs() {
         printf '%s\n' "$d"
     done
     shopt -u nullglob
+    # Default single-account layout: watch the config dir (to catch sessions/
+    # being created) and its sessions/ dir (where the *.json files change).
+    [ -d "$CLAUDE_DEFAULT_DIR" ] && printf '%s\n' "$CLAUDE_DEFAULT_DIR"
+    [ -d "$CLAUDE_DEFAULT_DIR/sessions" ] && printf '%s\n' "$CLAUDE_DEFAULT_DIR/sessions"
 }
 
 # --- Main loop --------------------------------------------------------------

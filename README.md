@@ -4,10 +4,16 @@ A small systemd service that watches every Claude account's
 `~/.claudes/<account>/sessions/*.json` and publishes the aggregated
 session status to a configurable backend whenever it changes.
 
-Multiple Claude credentials are kept side by side under `~/.claudes/`,
-one directory per account (each a `CLAUDE_CONFIG_DIR`); the reporter
-aggregates sessions across all of them and picks up new accounts
-automatically. Override the parent with `CLAUDE_HOMES_DIR`.
+Session discovery scans two layouts and unions them (de-duplicated by
+`sessionId`), so it works whether you run one Claude login or several:
+
+- **`~/.claude/sessions/*.json`** — the single config dir Claude Code uses
+  normally (`CLAUDE_CONFIG_DIR` if set, else `~/.claude`). The common case,
+  including inside a sandbox. Override with `CLAUDE_DEFAULT_DIR`.
+- **`~/.claudes/<account>/sessions/*.json`** — a multi-account tree where
+  each subdirectory is its own `CLAUDE_CONFIG_DIR` kept side by side. New
+  accounts are picked up automatically. Override the parent with
+  `CLAUDE_HOMES_DIR`.
 
 Designed to drive a desk indicator, a dashboard, or any other
 out-of-process visibility into what your Claude Code instances are
